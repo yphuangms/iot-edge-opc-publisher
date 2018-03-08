@@ -1,0 +1,77 @@
+// The configuration file consists of two objects:
+// 1) The 'Defaults' object, which defines default settings for the telemetry
+//    configuration as well as a few control settings.
+// 2) An array 'EndpointSpecific' of endpoint specific configuration settings
+// Both objects are optional and if they are not specified, then publisher uses
+// its internal default configuration, which generates telemetry messages compatible
+// with the Microsoft Connected factory Preconfigured Solution (https://github.com/Azure/azure-iot-connected-factory).
+
+// A JSON telemetry message for Connected factory looks like:
+//  {
+//      "NodeId": "i=2058",
+//      "ApplicationUri": "urn:myopcserver",
+//      "DisplayName": "CurrentTime",
+//      "Value": {
+//          "Value": "10.11.2017 14:03:17",
+//          "SourceTimestamp": "2017-11-10T14:03:17Z"
+//      }
+//  }
+
+// The settings of 'Defaults' in the sample below, are similar to what publisher is
+// using as its internal default telemetry configuration.
+{
+  "FormattedAsVariable": true,
+
+  "Defaults": { 
+    // The following shows how a endpoint specific configuration could look like:
+      // 'ForEndpointUrl' allows to configure for which OPC UA server this
+      // object applies and is a required property for all objects in the
+      // 'EndpointSpecific' array.
+      // The value of 'ForEndpointUrl' must be an 'EndpointUrl' configured in
+      // the publishednodes.json confguration file.
+
+      "EndpointUrl": {
+        // We overwrite the default behaviour and publish the
+        // endpoint URL in this case.
+        "Publish": false,
+        // We are only interested in the URL part following the 'opc.tcp://' prefix
+        // and define a group matching this.
+        "Pattern": "opc.tcp://(.*)"
+      },
+      "NodeId": {
+        // We are not interested in the configured 'NodeId' value,
+        // so we do not publish it.
+        "Publish": false
+        // No 'Pattern' key is specified here, so the 'NodeId' value will be
+        // taken as specified in the publishednodes configuration file.
+      },
+    "MonitoredItem": {
+      "Flat": true,
+      "ApplicationUri": {
+        // We already publish the endpoint URL, so we do not want
+        //the ApplicationUri of the MonitoredItem to be published.
+        "Publish": false
+      },
+      "DisplayName": {
+        "Publish": false
+      }
+    },
+    "Value": {
+      "Flat": true,
+      "Value": {
+        // The value of the node is important for us, everything else we
+        //are not interested in to keep the data ingest as small as possible.
+        "Publish": false
+      },
+      "SourceTimestamp": {
+        "Publish": true
+      },
+      "StatusCode": {
+        "Publish": false
+      },
+      "Status": {
+        "Publish": false
+      }
+    }
+    }
+}

@@ -1,6 +1,7 @@
 ﻿
 using Opc.Ua;
 using System;
+using System.Diagnostics;
 using static System.Console;
 
 namespace OpcPublisher.Workarounds
@@ -26,6 +27,7 @@ namespace OpcPublisher.Workarounds
             {
                 WriteLine(DateTime.Now.ToString() + ": " + message);
             }
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + message);
         }
 
         public static void Trace(string message, params object[] args)
@@ -35,6 +37,7 @@ namespace OpcPublisher.Workarounds
             {
                 WriteLine(DateTime.Now.ToString() + ": " + message, args);
             }
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + message, args);
         }
 
         public static void Trace(int traceMask, string format, params object[] args)
@@ -44,6 +47,7 @@ namespace OpcPublisher.Workarounds
             {
                 WriteLine(DateTime.Now.ToString() + ": " + format, args);
             }
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + format, args);
         }
 
         public static void Trace(Exception e, string format, params object[] args)
@@ -52,6 +56,10 @@ namespace OpcPublisher.Workarounds
             WriteLine(DateTime.Now.ToString() + ": " + format, args);
             WriteLine(DateTime.Now.ToString() + ": " + e.Message.ToString());
             WriteLine(DateTime.Now.ToString() + ": " + e.StackTrace);
+
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + format, args);
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + e.Message.ToString());
+            Debug.WriteLine(DateTime.Now.ToString() + ": " + e.StackTrace);
         }
 
         private static bool _verboseConsole = false;

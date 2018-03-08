@@ -176,13 +176,13 @@ namespace OpcPublisher
                             foreach (var opcNode in publisherConfigFileEntry.OpcNodes)
                             {
                                 ExpandedNodeId expandedNodeId = ExpandedNodeId.Parse(opcNode.ExpandedNodeId);
-                                _nodePublishingConfiguration.Add(new NodePublishingConfiguration(expandedNodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, opcNode.OpcSamplingInterval ?? OpcSamplingInterval, opcNode.OpcPublishingInterval ?? OpcPublishingInterval));
+                                _nodePublishingConfiguration.Add(new NodePublishingConfiguration(expandedNodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, opcNode.OpcSamplingInterval ?? OpcSamplingInterval, opcNode.OpcPublishingInterval ?? OpcPublishingInterval, opcNode.Name));
                             }
                         }
                         else
                         {
                             // NodeId (ns=) format node configuration syntax using default sampling and publishing interval.
-                            _nodePublishingConfiguration.Add(new NodePublishingConfiguration(publisherConfigFileEntry.NodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, OpcSamplingInterval, OpcPublishingInterval));
+                            _nodePublishingConfiguration.Add(new NodePublishingConfiguration(publisherConfigFileEntry.NodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, OpcSamplingInterval, OpcPublishingInterval, publisherConfigFileEntry.Name));
                             // give user a warning that the syntax is obsolete
                             Trace($"Please update the syntax of the configuration file and use ExpandedNodeId instead of NodeId property name for node with identifier '{publisherConfigFileEntry.NodeId.ToString()}' on EndpointUrl '{publisherConfigFileEntry.EndpointUri.AbsoluteUri}'.");
 
@@ -415,6 +415,26 @@ namespace OpcPublisher
             }
         }
 
+        public static List<NodePublishingConfiguration> GetPublishingNodes()
+        {
+            return _nodePublishingConfiguration;
+        }
+
+        public static NodePublishingConfiguration FindPublishingNode(string endpointUri, string nodeId)
+        {
+            foreach (var node in _nodePublishingConfiguration)
+            {
+                if (node.EndpointUri.AbsoluteUri == endpointUri)
+                {
+                    if (node.NodeId?.ToString() == nodeId || node.ExpandedNodeId?.ToString() == nodeId)
+                    {
+                        return node;
+                    }
+                }
+            }
+            return null;
+        }
+
         private static string _publisherNodeConfigurationFilename = $"{System.IO.Directory.GetCurrentDirectory()}{Path.DirectorySeparatorChar}publishednodes.json";
         private static List<NodePublishingConfiguration> _nodePublishingConfiguration;
         private static List<PublisherConfigurationFileEntry> _configurationFileEntries;
@@ -434,6 +454,9 @@ namespace OpcPublisher
         [DefaultValue(OpcPublishingIntervalDefault)]
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate, NullValueHandling = NullValueHandling.Ignore)]
         public int? OpcPublishingInterval;
+
+        [DefaultValue(null)]
+        public string Name;
     }
 
     /// <summary>
@@ -466,6 +489,10 @@ namespace OpcPublisher
 
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public List<OpcNodeOnEndpointUrl> OpcNodes { get; set; }
+
+        [DefaultValue(null)]
+        public string Name { get; set; }
+
     }
 
     /// <summary>
@@ -479,8 +506,9 @@ namespace OpcPublisher
         public ExpandedNodeId ExpandedNodeId;
         public int OpcSamplingInterval;
         public int OpcPublishingInterval;
+        public string Name;
 
-        public NodePublishingConfiguration(NodeId nodeId, Uri endpointUri, bool? useSecurity, int opcSamplingInterval, int opcPublishingInterval)
+        public NodePublishingConfiguration(NodeId nodeId, Uri endpointUri, bool? useSecurity, int opcSamplingInterval, int opcPublishingInterval, string publishName = null)
         {
             NodeId = nodeId;
             ExpandedNodeId = null;
@@ -488,8 +516,9 @@ namespace OpcPublisher
             UseSecurity = useSecurity ?? true;
             OpcSamplingInterval = opcSamplingInterval;
             OpcPublishingInterval = opcPublishingInterval;
+            Name = publishName;
         }
-        public NodePublishingConfiguration(ExpandedNodeId expandedNodeId, Uri endpointUri, bool? useSecurity, int opcSamplingInterval, int opcPublishingInterval)
+        public NodePublishingConfiguration(ExpandedNodeId expandedNodeId, Uri endpointUri, bool? useSecurity, int opcSamplingInterval, int opcPublishingInterval, string publishName = null)
         {
             NodeId = null;
             ExpandedNodeId = expandedNodeId;
@@ -497,6 +526,7 @@ namespace OpcPublisher
             UseSecurity = useSecurity ?? true;
             OpcSamplingInterval = opcSamplingInterval;
             OpcPublishingInterval = opcPublishingInterval;
+            Name = publishName;
         }
     }
 }

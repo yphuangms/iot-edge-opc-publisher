@@ -1,4 +1,5 @@
 ﻿
+//#define ENABLE_OPCUA_WRITE
 using Mono.Options;
 using System;
 using System.Collections.Generic;
@@ -439,7 +440,11 @@ namespace OpcPublisher
                 }
 
                 // initialize and start IoTHub messaging
+#if ENABLE_OPCUA_WRITE
+                IotHubCommunication = new IotHubMessaging(SessionWriteNode);
+#else
                 IotHubCommunication = new IotHubMessaging();
+#endif
                 if (!await IotHubCommunication.InitAsync())
                 {
                     return;
@@ -542,7 +547,7 @@ namespace OpcPublisher
         /// <summary>
         /// Kicks of the work horse of the publisher regularily for all sessions.
         /// </summary>
-        public static async Task SessionConnectorAsync(CancellationToken ct)
+        public static async Task SessionConnectorAsync(CancellationToken ct, bool shouldUpdateConfig = false)
         {
             while (true)
             {
@@ -553,7 +558,7 @@ namespace OpcPublisher
                     try
                     {
                         await OpcSessionsListSemaphore.WaitAsync();
-                        singleSessionHandlerTaskList = OpcSessions.Select(s => s.ConnectAndMonitorAsync(ct));
+                        singleSessionHandlerTaskList = OpcSessions.Select(s => s.ConnectAndMonitorAsync(ct, shouldUpdateConfig));
                     }
                     finally
                     {
@@ -623,6 +628,30 @@ namespace OpcPublisher
                 await Task.Delay(_publisherSessionConnectWaitSec * 1000);
             }
         }
+
+#if ENABLE_OPCUA_WRITE
+        /// <summary>
+        /// write to session.
+        /// </summary>
+        public static void SessionWriteNode(string uri, string node, string value)
+        {
+            try
+            {
+                if (OpcSessions.Count > 0)
+                {
+                    OpcSession opcSession = OpcSessions.Find(x=>x.EndpointUri.ToString() == uri);
+                    if (opcSession != null)
+                    {
+                        opcSession.WriteNode(node, value);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Trace(e, $"Failed to write value to session. (message: {e.Message}");
+            }
+        }
+#endif
 
         /// <summary>
         /// Usage message.

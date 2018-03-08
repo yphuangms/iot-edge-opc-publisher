@@ -318,6 +318,7 @@ namespace OpcPublisher
         {
             public EndpointTelemetryConfiguration Defaults;
             public List<EndpointTelemetryConfiguration> EndpointSpecific;
+            public bool FormattedAsVariable = false; 
 
             public TelemetryConfiguration()
             {
@@ -354,10 +355,11 @@ namespace OpcPublisher
             _endpointTelemetryConfigurationCache = null;
         }
 
+        public static bool IsTelemetryFormattedAsVariable()
+        {
+            return _telemetryConfiguration.FormattedAsVariable;
+        }
 
-        /// <summary>
-        /// Method to get the telemetry configuration for a specific endpoint URL. If the endpoint URL is not found, then the default configuration is returned.
-        /// </summary>
         public static EndpointTelemetryConfiguration GetEndpointTelemetryConfiguration(string endpointUrl)
         {
             // lookup configuration in cache and return it or return default configuration
@@ -512,6 +514,8 @@ namespace OpcPublisher
             // return if there is no configuration file specified
             if (string.IsNullOrEmpty(_publisherTelemetryConfigurationFilename))
             {
+                _telemetryConfiguration = new TelemetryConfiguration();
+                _telemetryConfiguration.Defaults = _defaultEndpointTelemetryConfiguration;
                 Trace("Using default telemetry configuration.");
                 return true;
             }

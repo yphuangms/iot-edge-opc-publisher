@@ -1,0 +1,28 @@
+[
+  {
+    "EndpointUrl": "opc.tcp://myopcserver:51210/UA/SampleServer",
+    "UseSecurity": true,
+    "OpcNodes": [
+      {
+        "ExpandedNodeId": "nsu=http://test.org/UA/Data/;i=11170",
+        "Name": "temperature",
+        "Tag": "SByteValue"
+      },
+      {
+        "ExpandedNodeId": "nsu=http://test.org/UA/Data/;i=11176",
+        "Name": "humidity",
+        "Tag": "ByteValue"
+      },
+      {
+        "ExpandedNodeId": "nsu=http://test.org/UA/Data/;i=11188",
+        "Name": "co2",
+        "Tag": "UInt16Value"
+      },
+      {
+        "ExpandedNodeId": "nsu=http://test.org/UA/Data/;i=10216",
+        "Name": "ledred",
+        "Tag": "BooleanValue"
+      }
+    ]
+  }
+]

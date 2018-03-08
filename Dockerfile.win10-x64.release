@@ -1,0 +1,19 @@
+FROM microsoft/dotnet:2.0-sdk-nanoserver-1709 AS build-env
+
+# copy csproj and restore as distinct layers
+COPY src /build/src
+
+# build
+WORKDIR /build/src
+RUN dotnet restore
+RUN dotnet publish -f netcoreapp2.0 -c Release_WriteEnabled -o /build/out
+
+FROM microsoft/dotnet:2.0.0-runtime-nanoserver-1709
+
+ARG EXE_DIR=.
+
+WORKDIR /docker
+
+COPY --from=build-env /build/out /app
+
+CMD ["dotnet", "/app/OpcPublisher.dll"]

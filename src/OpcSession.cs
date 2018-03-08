@@ -231,10 +231,13 @@ namespace OpcPublisher
 
                 // the endpoint URL is required to allow IotHubMessaging lookup the telemetry configuration
                 messageData.EndpointUrl = EndpointUri.AbsoluteUri;
-                if (telemetryConfiguration.NodeId.Publish == true)
-                {
-                    messageData.NodeId = ConfigType == OpcMonitoredItemConfigurationType.NodeId ? ConfigNodeId.ToString() : ConfigExpandedNodeIdOriginal.ToString();
-                }
+                //if (telemetryConfiguration.NodeId.Publish == true)
+                //{
+                //    messageData.NodeId = ConfigType == OpcMonitoredItemConfigurationType.NodeId ? ConfigNodeId.ToString() : ConfigExpandedNodeIdOriginal.ToString();
+                //}
+                // -- always notify with nodeid, disregarding "publish" flag
+                messageData.NodeId = ConfigType == OpcMonitoredItemConfigurationType.NodeId ? ConfigNodeId.ToString() : ConfigExpandedNodeIdOriginal.ToString();
+
                 if (telemetryConfiguration.MonitoredItem.ApplicationUri.Publish == true)
                 {
                     messageData.ApplicationUri = (monitoredItem.Subscription.Session.Endpoint.Server.ApplicationUri + (string.IsNullOrEmpty(OpcSession.ShopfloorDomain) ? "" : $":{OpcSession.ShopfloorDomain}"));
@@ -259,7 +262,10 @@ namespace OpcPublisher
                     // use the StatusCode as reported in the notification event argument to lookup the symbolic name
                     messageData.Status = StatusCode.LookupSymbolicId(value.StatusCode.Code);
                 }
-                if (telemetryConfiguration.Value.Value.Publish == true && value.Value != null)
+
+                //if (telemetryConfiguration.Value.Value.Publish == true && value.Value != null)
+                // -- always notify with value, disregarding "publish" flag
+                if (value.Value != null)
                 {
                     // use the Value as reported in the notification event argument encoded with the OPC UA JSON endcoder
                     JsonEncoder encoder = new JsonEncoder(monitoredItem.Subscription.Session.MessageContext, false);
@@ -457,7 +463,7 @@ namespace OpcPublisher
         /// - unused subscriptions (without any nodes to monitor) are removed.
         /// - sessions with out subscriptions are removed.
         /// </summary>
-        public async Task ConnectAndMonitorAsync(CancellationToken ct)
+        public async Task ConnectAndMonitorAsync(CancellationToken ct, bool shouldUpdateConfig = true)
         {
             bool updateConfigFileRequired = false;
             try
@@ -473,7 +479,8 @@ namespace OpcPublisher
                 await RemoveUnusedSessionsAsync(ct);
 
                 // update the config file if required
-                if (updateConfigFileRequired)
+                // -- add "shouldUpdateConfig" flag as a user-defined control to enable/disable configuration update
+                if (updateConfigFileRequired && shouldUpdateConfig)
                 {
                     await UpdateNodeConfigurationFileAsync();
                 }
@@ -580,6 +587,49 @@ namespace OpcPublisher
             }
         }
 
+#if ENABLE_OPCUA_WRITE
+        public void WriteNode(string nodeid, string val)
+        {
+            StatusCodeCollection results;
+            DiagnosticInfoCollection diagnosticInfos;
+
+            WriteValueCollection values = new WriteValueCollection();
+            WriteValue value = new WriteValue();
+
+            var exNodeId = ExpandedNodeId.Parse(nodeid);
+            //value.NodeId = NodeId.Parse(String.Format("ns={0};i={1}", exNodeId.NamespaceIndex, exNodeId.Identifier));
+            VariableNode variable = OpcUaClientSession.NodeCache.Find(exNodeId) as VariableNode;
+            if (variable != null)
+            {
+                object cast_value = null;
+
+                var type = Opc.Ua.TypeInfo.GetBuiltInType(variable.DataType);
+
+                if (type == BuiltInType.Boolean)
+                {
+                    cast_value = Boolean.Parse(val);
+                }
+                else
+                {
+                    cast_value = Opc.Ua.TypeInfo.Cast(val, type);
+                }
+
+                value.NodeId = variable.NodeId;
+                value.Value = new DataValue(new Variant(cast_value), new StatusCode(0));
+                value.AttributeId = Attributes.Value;
+                value.IndexRange = null;
+                values.Add(value);
+
+                ResponseHeader responseHeader = OpcUaClientSession.Write(null, values, out results, out diagnosticInfos);
+                Trace(String.Format("Write to node: '{0}'({1}) = '{2}', status code: {3}.", variable.DisplayName, nodeid, val, results.Last()));
+            }
+            else
+            {
+                Trace(String.Format("Error! Write to node '{0}', node is not found.", nodeid));
+            }
+        }
+#endif
+
         /// <summary>
         /// Monitoring for a node starts if it is required.
         /// </summary>
@@ -641,13 +691,20 @@ namespace OpcPublisher
                                 if (item.ConfigType == OpcMonitoredItemConfigurationType.ExpandedNodeId)
                                 {
                                     int namespaceIndex = _namespaceTable.GetIndex(item.ConfigExpandedNodeId?.NamespaceUri);
+                                    string namespaceUri = item.ConfigExpandedNodeId?.NamespaceUri;
+                                    if (namespaceIndex < 0 && item.ConfigExpandedNodeId?.NamespaceIndex >= 0)
+                                    {
+                                        namespaceIndex = (int )(item.ConfigExpandedNodeId.NamespaceIndex);
+                                        namespaceUri = _namespaceTable.ToArray().ElementAtOrDefault(namespaceIndex);
+                                    }
+ 
                                     if (namespaceIndex < 0)
                                     {
                                         Trace($"The namespace URI of node '{item.ConfigExpandedNodeId.ToString()}' can be not mapped to a namespace index.");
                                     }
                                     else
                                     {
-                                        item.ConfigExpandedNodeId = new ExpandedNodeId(item.ConfigExpandedNodeId.Identifier, (ushort)namespaceIndex, item.ConfigExpandedNodeId?.NamespaceUri, 0);
+                                        item.ConfigExpandedNodeId = new ExpandedNodeId(item.ConfigExpandedNodeId.Identifier, (ushort)namespaceIndex, namespaceUri, 0);
                                     }
                                 }
                                 if (item.ConfigType == OpcMonitoredItemConfigurationType.NodeId)
@@ -1200,10 +1257,10 @@ namespace OpcPublisher
             return false;
         }
 
-    /// <summary>
-    /// Shutdown the current session if it is connected.
-    /// </summary>
-    public async Task ShutdownAsync()
+        /// <summary>
+        /// Shutdown the current session if it is connected.
+        /// </summary>
+        public async Task ShutdownAsync()
         {
             try
             {

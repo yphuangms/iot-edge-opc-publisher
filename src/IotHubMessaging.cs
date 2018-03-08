@@ -1,4 +1,6 @@
 ﻿
+//#define ENABLE_OPCUA_WRITE
+#define ENABLE_IOTCENTRAL_SUPPORT
 using System.Collections.Concurrent;
 using System.Text;
 using System.Threading;
@@ -6,9 +8,12 @@ using System.Threading.Tasks;
 
 namespace OpcPublisher
 {
+#if ENABLE_CREATE_DEVICE
     using Microsoft.Azure.Devices;
+#endif
     using Microsoft.Azure.Devices.Client;
     using Microsoft.Azure.Devices.Client.Transport.Mqtt;
+    using Microsoft.Azure.Devices.Shared;
     using Newtonsoft.Json;
     using Opc.Ua;
     using System;
@@ -45,6 +50,12 @@ namespace OpcPublisher
         public static DateTime SentLastTime => _sentLastTime;
 
         public static long FailedMessages => _failedMessages;
+
+#if ENABLE_OPCUA_WRITE
+        public delegate void WriteCallBack(string uri, string node, string value);
+#endif
+
+        private bool _instanceIsModule = false;
 
         public static string IotHubOwnerConnectionString
         {
@@ -108,8 +119,14 @@ namespace OpcPublisher
         /// <summary>
         /// Ctor for the class.
         /// </summary>
+#if ENABLE_OPCUA_WRITE
+        public IotHubMessaging(WriteCallBack writeCallback)
+        {
+            _writeToSessionCallback = writeCallback;
+#else
         public IotHubMessaging()
         {
+#endif
             _jsonStringBuilder = new StringBuilder();
             _jsonStringWriter = new StringWriter(_jsonStringBuilder);
             _jsonWriter = new JsonTextWriter(_jsonStringWriter);
@@ -148,6 +165,7 @@ namespace OpcPublisher
         {
             try
             {
+#if ENABLE_CREATE_DEVICE
                 // check if we got an IoTHub owner connection string
                 if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
                 {
@@ -160,12 +178,15 @@ namespace OpcPublisher
                         Trace("IoT Hub owner connection string read from environment.");
                     }
                 }
+#endif
 
                 // if we run as IoT Edge module, we do not need to do any IoT Hub operations and key handling, but just 
                 // register ourselves with IoT Hub
                 _edgeHubConnectionString = Environment.GetEnvironmentVariable("EdgeHubConnectionString");
+
                 if (string.IsNullOrEmpty(_edgeHubConnectionString))
                 {
+#if ENABLE_CREATE_DEVICE
                     Trace($"IoTHub device cert store type is: {IotDeviceCertStoreType}");
                     Trace($"IoTHub device cert path is: {IotDeviceCertStorePath}");
                     if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
@@ -221,7 +242,7 @@ namespace OpcPublisher
 
                     // connect to IoTHub
                     if (!string.IsNullOrEmpty(_deviceConnectionString))
-                    {
+                    { 
                         Trace($"Create Publisher IoTHub client with device connection string using '{IotHubProtocol}' for communication.");
                         _iotHubClient = DeviceClient.CreateFromConnectionString(_deviceConnectionString, IotHubProtocol);
                         _iotHubClient.ProductInfo = "OpcPublisher";
@@ -235,9 +256,17 @@ namespace OpcPublisher
                         Trace("exiting...");
                         return false;
                     }
+#else
+                    Trace("Device connection string must be provided in environment variable.");
+#endif
                 }
                 else
                 {
+                    if (_edgeHubConnectionString.Contains("ModuleId=")) // is a module
+                    {
+                        _instanceIsModule = true;
+                    }
+
                     // we also need to initialize the cert verification, but it is not yet fully functional under Windows
                     // Cert verification is not yet fully functional when using Windows OS for the container
                     bool bypassCertVerification = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
@@ -246,23 +275,35 @@ namespace OpcPublisher
                         InstallEdgeHubCert();
                     }
 
-                    MqttTransportSettings mqttSettings = new MqttTransportSettings(Microsoft.Azure.Devices.Client.TransportType.Mqtt_Tcp_Only);
-                    // During dev you might want to bypass the cert verification. It is highly recommended to verify certs systematically in production
-                    if (bypassCertVerification)
+                    if (_instanceIsModule)
                     {
-                        Trace($"ATTENTION: You are bypassing the EdgeHub security cert verfication. Please ensure this was intentional.");
-                        mqttSettings.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
-                    }
-                    ITransportSettings[] transportSettings = { mqttSettings };
+                        MqttTransportSettings mqttSettings = new MqttTransportSettings(Microsoft.Azure.Devices.Client.TransportType.Mqtt_Tcp_Only);
+                        // During dev you might want to bypass the cert verification. It is highly recommended to verify certs systematically in production
+                        if (bypassCertVerification)
+                        {
+                            Trace($"ATTENTION: You are bypassing the EdgeHub security cert verfication. Please ensure this was intentional.");
+                            mqttSettings.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
+                        }
+                        ITransportSettings[] transportSettings = { mqttSettings };
 
-                    // connect to EdgeHub
-                    Trace($"Create Publisher EdgeHub client with connection string using '{IotHubProtocol}' for communication.");
-                    _iotHubClient = DeviceClient.CreateFromConnectionString(_edgeHubConnectionString, transportSettings);
+                        // connect to EdgeHub
+                        Trace($"Create Publisher EdgeHub client with connection string using '{IotHubProtocol}' for communication.");
+                        _iotHubClient = DeviceClient.CreateFromConnectionString(_edgeHubConnectionString, transportSettings);
+                    }
+                    else
+                    {
+                        Trace($"Create Publisher client with connection string using '{TransportType.Mqtt}' for communication.");
+                        _iotHubClient = DeviceClient.CreateFromConnectionString(_edgeHubConnectionString, TransportType.Mqtt);
+                    }
+
                     ExponentialBackoff exponentialRetryPolicy = new ExponentialBackoff(int.MaxValue, TimeSpan.FromMilliseconds(2), TimeSpan.FromMilliseconds(1024), TimeSpan.FromMilliseconds(3));
                     _iotHubClient.SetRetryPolicy(exponentialRetryPolicy);
                     await _iotHubClient.OpenAsync();
                 }
 
+#if ENABLE_OPCUA_WRITE
+                await ReceiveInit();
+#endif
                 // show config
                 Trace($"IoTHub messaging configured with a send interval of {_defaultSendIntervalSeconds} sec and a message buffer size of {_iotHubMessageSize} bytes.");
 
@@ -284,6 +325,7 @@ namespace OpcPublisher
             return true;
         }
 
+#if ENABLE_CREATE_DEVICE
         /// <summary>
         /// Method to write the IoTHub owner connection string into the cert store. 
         /// </summary>
@@ -294,7 +336,7 @@ namespace OpcPublisher
             await SecureIoTHubToken.WriteAsync(PublisherOpcApplicationConfiguration.ApplicationName, iotHubOwnerConnectionString, IotDeviceCertStoreType, IotDeviceCertStorePath);
             _iotHubClient = newClient;
         }
-
+#endif
         /// <summary>
         /// Shuts down the IoTHub communication.
         /// </summary>
@@ -303,6 +345,13 @@ namespace OpcPublisher
             // send cancellation token and wait for last IoT Hub message to be sent.
             try
             {
+#if ENABLE_OPCUA_WRITE
+                _receiveTokenSource.Cancel();
+                await _receiveTask;
+                _receiveTokenSource = null;
+                _receiveTask = null;
+#endif
+
                 _tokenSource.Cancel();
                 await _monitoredItemsProcessorTask;
 
@@ -340,6 +389,138 @@ namespace OpcPublisher
             }
         }
 
+#if ENABLE_OPCUA_WRITE
+        /// <summary>
+        /// Initialize receive loop or module receive callback
+        /// </summary>
+        private async Task ReceiveInit()
+        {
+            if (_iotHubClient != null)
+            {
+                if (_instanceIsModule)
+                {
+                    // Register callback to be called when a message is received by the module
+                    await _iotHubClient.SetInputMessageHandlerAsync(
+                    "input1",
+                    ProcessMessage,
+                    null);
+                }
+                else
+                {
+#if ENABLE_IOTCENTRAL_SUPPORT
+                    await _iotHubClient.SetDesiredPropertyUpdateCallbackAsync(HandleIoTCentralSettingChanged, _iotHubClient);
+#endif
+                    // Register callback to be called when a message is received by the module
+                    //await _iotHubClient.SetMessageHandlerAsync(
+                    //ProcessMessage,
+                    //null);
+                    _receiveTokenSource = new CancellationTokenSource();
+                    _receiveTask = Task.Run(async () => await Receive(_receiveTokenSource.Token));
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Receive C2D message(running without iot edge)
+        /// </summary>
+        /// <param name="userContext"></param>
+        /// <returns></returns>
+        private async Task Receive(CancellationToken ct)
+        {
+            var timeout = TimeSpan.FromSeconds(3);
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    Message message = await _iotHubClient.ReceiveAsync(timeout);
+                    if (message != null)
+                    {
+                        await _iotHubClient.CompleteAsync(message);
+                        await ProcessMessage(message, null);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace("Error when receiving: {0}", ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// This method is called whenever the module is sent a message from the EdgeHub. 
+        /// It just pipe the messages without any change.
+        /// It prints all the incoming messages.
+        /// </summary>
+        static async Task<MessageResponse> ProcessMessage(Message message, object userContext)
+        {
+            byte[] messageBytes = message.GetBytes();
+            string messageString = Encoding.UTF8.GetString(messageBytes);
+            Trace($"Received Message Body: [{messageString}]");
+
+            try
+            {
+                // Get message body, containing the write target and value
+                var messageBody = JsonConvert.DeserializeObject<IncomingMessage>(messageString);
+
+                if (messageBody!=null && messageBody.Command == "Write")
+                {
+                    _writeToSessionCallback?.Invoke(messageBody.EndpointUrl, messageBody.NodeId, messageBody.Value);
+                }
+            }
+            catch(Exception e)
+            {
+                Trace(e, "Fail to Process Incoming Message");
+            }
+            return MessageResponse.Completed;
+        }
+
+#if ENABLE_IOTCENTRAL_SUPPORT
+        private static async Task HandleIoTCentralSettingChanged(TwinCollection desiredProperties, object userContext)
+        {
+            try
+            {
+                TwinCollection reportedProperties = new TwinCollection();
+
+                Trace($"IoTCentral Settings Changed: " + JsonConvert.SerializeObject(desiredProperties));
+
+                var listPublishingNodes = PublisherNodeConfiguration.GetPublishingNodes();
+
+                foreach (var node in listPublishingNodes)
+                {
+                    if (!String.IsNullOrEmpty(node.Name) && desiredProperties.Contains(node.Name))
+                    {
+                        string setting = node.Name;
+                        reportedProperties[setting] = new
+                        {
+                            value = desiredProperties[setting]["value"],
+                            status = "completed",
+                            desiredVersion = desiredProperties["$version"],
+                            message = "Processed"
+                        };
+                        string nodeid = (node.NodeId != null)? node.NodeId.ToString() : node.ExpandedNodeId?.ToString();
+                        _writeToSessionCallback?.Invoke(node.EndpointUri.ToString(), nodeid, desiredProperties[setting]["value"].ToString());
+                    }
+                }
+
+                if (reportedProperties.Count > 0)
+                {
+                    // Acknowledge setting change
+                    DeviceClient deviceClient = userContext as DeviceClient;
+                    if (deviceClient != null)
+                    { 
+                        await deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace(ex, "Fail to Handle IoTCentral SettingChanged!");
+            }
+        }
+#endif
+#endif
+
         /// <summary>
         /// Creates a JSON message to be sent to IoTHub, based on the telemetry configuration for the endpoint.
         /// </summary>
@@ -368,11 +549,23 @@ namespace OpcPublisher
                     await _jsonWriter.WriteValueAsync(messageData.EndpointUrl);
                 }
 
+                bool formattedAsVariable = IsTelemetryFormattedAsVariable();
+                string variableName = null;
+
                 // process NodeId
                 if (!string.IsNullOrEmpty(messageData.NodeId))
                 {
-                    await _jsonWriter.WritePropertyNameAsync(telemetryConfiguration.NodeId.Name);
-                    await _jsonWriter.WriteValueAsync(messageData.NodeId);
+                    if (formattedAsVariable)
+                    {
+                        var node = PublisherNodeConfiguration.FindPublishingNode(messageData.EndpointUrl, messageData.NodeId);
+                        if (node != null)
+                            variableName = node.Name;
+                    }
+                    else
+                    {
+                        await _jsonWriter.WritePropertyNameAsync(telemetryConfiguration.NodeId.Name);
+                        await _jsonWriter.WriteValueAsync(messageData.NodeId);
+                    }
                 }
 
                 // process MonitoredItem object properties
@@ -417,14 +610,25 @@ namespace OpcPublisher
                     // process Value
                     if (!string.IsNullOrEmpty(messageData.Value))
                     {
-                        await _jsonWriter.WritePropertyNameAsync(telemetryConfiguration.Value.Value.Name);
-                        if (messageData.PreserveValueQuotes)
+                        if (formattedAsVariable)
                         {
-                            await _jsonWriter.WriteValueAsync(messageData.Value);
+                            if (!String.IsNullOrEmpty(variableName))
+                            {
+                                await _jsonWriter.WritePropertyNameAsync(variableName);
+                                await _jsonWriter.WriteValueAsync(messageData.Value);
+                            }
                         }
                         else
                         {
-                            await _jsonWriter.WriteRawValueAsync(messageData.Value);
+                            await _jsonWriter.WritePropertyNameAsync(telemetryConfiguration.Value.Value.Name);
+                            if (messageData.PreserveValueQuotes)
+                            {
+                                await _jsonWriter.WriteValueAsync(messageData.Value);
+                            }
+                            else
+                            {
+                                await _jsonWriter.WriteRawValueAsync(messageData.Value);
+                            }
                         }
                     }
 
@@ -471,12 +675,24 @@ namespace OpcPublisher
         /// </summary>
         private async Task MonitoredItemsProcessorAsync(CancellationToken ct)
         {
+            string contentPropertyKey = "content-type";
+            string contentPropertyValue = "application/opcua+uajson";
+            string devicenamePropertyKey = "devicename";
+            string devicenamePropertyValue = ApplicationName;
+            int userPropertyLength = 0;
+            bool enableUserProperty = !IsTelemetryFormattedAsVariable();
+
+            if (enableUserProperty)
+            {
+                userPropertyLength = contentPropertyKey.Length + contentPropertyValue.Length + devicenamePropertyKey.Length + devicenamePropertyValue.Length;
+            }
+
             uint jsonSquareBracketLength = 2;
             Microsoft.Azure.Devices.Client.Message tempMsg = new Microsoft.Azure.Devices.Client.Message();
             // the system properties are MessageId (max 128 byte), Sequence number (ulong), ExpiryTime (DateTime) and more. ideally we get that from the client.
             int systemPropertyLength = 128 + sizeof(ulong) + tempMsg.ExpiryTimeUtc.ToString().Length;
             // if batching is requested the buffer will have the requested size, otherwise we reserve the max size
-            uint iotHubMessageBufferSize = (_iotHubMessageSize > 0 ? _iotHubMessageSize : IotHubMessageSizeMax) - (uint)systemPropertyLength - (uint)jsonSquareBracketLength;
+            uint iotHubMessageBufferSize = (_iotHubMessageSize > 0 ? _iotHubMessageSize : IotHubMessageSizeMax) - (uint)systemPropertyLength - (uint)userPropertyLength - (uint)jsonSquareBracketLength;
             byte[] iotHubMessageBuffer = new byte[iotHubMessageBufferSize];
             MemoryStream iotHubMessage = new MemoryStream(iotHubMessageBuffer);
             DateTime nextSendTime = DateTime.UtcNow + TimeSpan.FromSeconds(_defaultSendIntervalSeconds);
@@ -594,13 +810,23 @@ namespace OpcPublisher
                                 iotHubMessage.Write(Encoding.UTF8.GetBytes("]"), 0, 1);
                                 encodedIotHubMessage = new Microsoft.Azure.Devices.Client.Message(iotHubMessage.ToArray());
                             }
+
+                            if (enableUserProperty)
+                            {
+                                encodedIotHubMessage.Properties.Add(contentPropertyKey, contentPropertyValue);
+                                encodedIotHubMessage.Properties.Add(devicenamePropertyKey, devicenamePropertyValue);
+                            }
+
+ 
                             if (_iotHubClient != null)
                             {
                                 nextSendTime += TimeSpan.FromSeconds(_defaultSendIntervalSeconds);
                                 try
                                 {
                                     _sentBytes += encodedIotHubMessage.GetBytes().Length;
+
                                     await _iotHubClient.SendEventAsync(encodedIotHubMessage);
+
                                     _sentMessages++;
                                     _sentLastTime = DateTime.UtcNow;
                                     Trace(Utils.TraceMasks.OperationDetail, $"Sending {encodedIotHubMessage.BodyStream.Length} bytes to IoTHub.");
@@ -645,6 +871,12 @@ namespace OpcPublisher
             }
         }
 
+#if ENABLE_OPCUA_WRITE
+        private static CancellationTokenSource _receiveTokenSource;
+        private static Task _receiveTask;
+        private static WriteCallBack _writeToSessionCallback;
+#endif
+
         private static string _iotHubOwnerConnectionString = string.Empty;
         private static Microsoft.Azure.Devices.Client.TransportType _iotHubProtocol = Microsoft.Azure.Devices.Client.TransportType.Mqtt_WebSocket_Only;
         private static uint _iotHubMessageSize = 262144;
@@ -671,4 +903,17 @@ namespace OpcPublisher
         private static string _edgeHubConnectionString;
         private static string _deviceConnectionString;
     }
+
+#if ENABLE_OPCUA_WRITE
+    /// <summary>
+    /// data structure of incoming message
+    /// </summary>
+    public class IncomingMessage
+    {
+        public string Command { get; set; }
+        public string EndpointUrl { get; set; }
+        public string NodeId { get; set; }
+        public string Value { get; set; }
+    }
+#endif
 }

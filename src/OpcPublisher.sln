@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26730.15
+VisualStudioVersion = 15.0.27130.2024
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpcPublisher", "OpcPublisher.csproj", "{EAC47E1C-39F4-4E51-A241-88432552D461}"
 EndProject
@@ -13,19 +13,32 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		..\appveyor.yml = ..\appveyor.yml
 		..\Dockerfile = ..\Dockerfile
 		..\Dockerfile.ssh = ..\Dockerfile.ssh
+		..\Dockerfile.win10-x64.release = ..\Dockerfile.win10-x64.release
 		..\Dockerfile.Windows = ..\Dockerfile.Windows
 		..\License.txt = ..\License.txt
 		..\README.md = ..\README.md
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "configsample", "configsample", "{F3FFFBAD-FAA3-41F5-8352-A016D32AFE4E}"
+	ProjectSection(SolutionItems) = preProject
+		..\configsample\publishednodes.sampleserver.v2.json = ..\configsample\publishednodes.sampleserver.v2.json
+		..\configsample\telemetryconfiguration.variable.json = ..\configsample\telemetryconfiguration.variable.json
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug_WriteEnabled|Any CPU = Debug_WriteEnabled|Any CPU
 		Debug|Any CPU = Debug|Any CPU
+		Release_WriteEnabled|Any CPU = Release_WriteEnabled|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EAC47E1C-39F4-4E51-A241-88432552D461}.Debug_WriteEnabled|Any CPU.ActiveCfg = Debug_WriteEnabled|Any CPU
+		{EAC47E1C-39F4-4E51-A241-88432552D461}.Debug_WriteEnabled|Any CPU.Build.0 = Debug_WriteEnabled|Any CPU
 		{EAC47E1C-39F4-4E51-A241-88432552D461}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{EAC47E1C-39F4-4E51-A241-88432552D461}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EAC47E1C-39F4-4E51-A241-88432552D461}.Release_WriteEnabled|Any CPU.ActiveCfg = Release_WriteEnabled|Any CPU
+		{EAC47E1C-39F4-4E51-A241-88432552D461}.Release_WriteEnabled|Any CPU.Build.0 = Release_WriteEnabled|Any CPU
 		{EAC47E1C-39F4-4E51-A241-88432552D461}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EAC47E1C-39F4-4E51-A241-88432552D461}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
